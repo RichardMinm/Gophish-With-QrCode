@@ -2,8 +2,13 @@ package models
 
 import (
 	"bytes"
+	"encoding/base64"
+	"github.com/google/uuid"
+	"github.com/skip2/go-qrcode"
+	"io/ioutil"
 	"net/mail"
 	"net/url"
+	"os"
 	"path"
 	"text/template"
 )
@@ -25,6 +30,7 @@ type PhishingTemplateContext struct {
 	RId         string
 	BaseURL     string
 	BaseRecipient
+	QrCode string
 }
 
 // NewPhishingTemplateContext returns a populated PhishingTemplateContext,
@@ -61,6 +67,36 @@ func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, rid string
 	trackingURL.Path = path.Join(trackingURL.Path, "/track")
 	trackingURL.RawQuery = q.Encode()
 
+	// 生成唯一文件名
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return PhishingTemplateContext{}, err
+	}
+	filename := id.String() + ".png"
+
+	// 生成二维码
+	qrcode.WriteFile(phishURL.String(), qrcode.Medium, 256, filename)
+
+	// 获取文件句柄
+	file, err := os.Open(filename)
+	if err != nil {
+		return PhishingTemplateContext{}, err
+	}
+	defer file.Close()
+
+	// 读取文件内容
+	data, err := ioutil.ReadAll(file)
+	if err != nil {
+		return PhishingTemplateContext{}, err
+	}
+
+	// 生成base64图片
+	imageBase64 := "data:image/png;base64," + base64.StdEncoding.EncodeToString(data)
+
+	// 移除图片
+	file.Close()
+	os.Remove(filename)
+
 	return PhishingTemplateContext{
 		BaseRecipient: r,
 		BaseURL:       baseURL.String(),
@@ -69,6 +105,7 @@ func NewPhishingTemplateContext(ctx TemplateContext, r BaseRecipient, rid string
 		Tracker:       "<img alt='' style='display: none' src='" + trackingURL.String() + "'/>",
 		From:          fn,
 		RId:           rid,
+		QrCode:        imageBase64,
 	}, nil
 }
 
